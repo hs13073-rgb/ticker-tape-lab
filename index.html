@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>打點計時器虛擬實驗室</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        slate: {
+                            850: '#131c2e',
+                            900: '#0f172a',
+                            950: '#090d16'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        .no-select { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+        canvas { touch-action: none; }
+    </style>
+</head>
+<body class="bg-[#090d16] text-slate-100 font-sans min-h-screen flex flex-col no-select">
+
+    <!-- Header Section -->
+    <header class="bg-slate-900 border-b border-slate-800 px-6 py-3 shadow-md flex flex-wrap justify-between items-center gap-4">
+        <div class="flex items-center space-x-3">
+            <div class="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30 shadow-inner">
+                <i class="fa-solid fa-stopwatch text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold bg-gradient-to-r from-indigo-300 via-cyan-300 to-emerald-300 bg-clip-text text-transparent">打點計時器虛擬實驗室</h1>
+                <p class="text-xs text-slate-400">Ticker Tape Timer Interactive Physics Lab</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <button id="btn-export-csv" class="px-3.5 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition flex items-center gap-2 shadow">
+                <i class="fa-solid fa-file-csv text-emerald-400"></i>
+                匯出 CSV 數據
+            </button>
+            <button id="btn-reset" class="px-3.5 py-1.5 text-xs font-semibold bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 rounded-lg border border-rose-800/50 transition flex items-center gap-2 shadow">
+                <i class="fa-solid fa-rotate-left"></i>
+                重置實驗
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Layout -->
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 p-5 max-w-[1920px] mx-auto w-full">
+        
+        <!-- Left Column: Controls & Dynamic Parameters Panel -->
+        <section class="lg:col-span-3 space-y-4">
+            
+            <!-- Motion Scenario Card -->
+            <div class="bg-slate-900/90 rounded-2xl p-4 border border-slate-800 shadow-xl space-y-3">
+                <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-indigo-400"></i> 運動情境與模式
+                </h2>
+                <select id="motion-scenario" class="w-full bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500 focus:outline-none font-medium">
+                    <option value="incline-flat" selected>斜面下滑 + 平面滑動</option>
+                    <option value="free-fall">自由落體 (垂直落體)</option>
+                    <option value="accel-pos">等加速度運動 - 加速模式 (a > 0)</option>
+                    <option value="accel-neg">等加速度運動 - 減速模式 (a < 0)</option>
+                    <option value="constant-velocity">水平等速運動 (a = 0)</option>
+                    <option value="manual-pull">手動拉動紙帶模式</option>
+                </select>
+
+                <!-- Frequency Setting -->
+                <div class="pt-3 border-t border-slate-800 space-y-1">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-400">打點頻率 (f)</span>
+                        <span id="freq-val" class="font-bold text-indigo-400">50 Hz</span>
+                    </div>
+                    <input type="range" id="freq-slider" min="10" max="60" step="5" value="50" class="w-full accent-indigo-500 bg-slate-800 rounded-lg h-1.5 cursor-pointer">
+                    <div class="text-[10px] text-slate-500 flex justify-between">
+                        <span>10 Hz (T=0.1s)</span>
+                        <span>50 Hz (T=0.02s)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dynamic Parameter Controls Card -->
+            <div id="parameters-panel" class="bg-slate-900/90 rounded-2xl p-4 border border-slate-800 shadow-xl space-y-4">
+                <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                    <i class="fa-solid fa-gear text-cyan-400"></i> 物理參數設定
+                </h2>
+
+                <!-- Incline Theta -->
+                <div id="control-theta" class="space-y-1">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-400">斜面傾角 (θ)</span>
+                        <span id="theta-val" class="font-bold text-cyan-400">30°</span>
+                    </div>
+                    <input type="range" id="theta-slider" min="10" max="60" step="1" value="30" class="w-full accent-cyan-500 bg-slate-800 rounded-lg h-1.5 cursor-pointer">
+                </div>
+
+                <!-- Friction Control (Allows 0.00) -->
+                <div id="control-mu" class="space-y-1">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-400">平面動摩擦係數 (μ)</span>
+                        <span id="mu-val" class="font-bold text-amber-400">0.15</span>
+                    </div>
+                    <input type="range" id="mu-slider" min="0.00" max="0.50" step="0.01" value="0.15" class="w-full accent-amber-500 bg-slate-800 rounded-lg h-1.5 cursor-pointer">
+                    <p id="mu-hint" class="text-[11px] text-amber-500/80 mt-1 leading-tight">※ 平面受到動摩擦阻力減速</p>
+                </div>
+
+                <!-- Initial Velocity -->
+                <div id="control-v0" class="space-y-1">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-400">初速度 v₀ (cm/s)</span>
+                        <span id="v0-val" class="font-bold text-indigo-400">0.0 cm/s</span>
+                    </div>
+                    <input type="range" id="v0-slider" min="0" max="300" step="10" value="0" class="w-full accent-indigo-500 bg-slate-800 rounded-lg h-1.5 cursor-pointer">
+                </div>
+
+                <!-- Acceleration Control -->
+                <div id="control-accel" class="space-y-1 hidden">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-400">加速度大小 |a| (cm/s²)</span>
+                        <span id="accel-val" class="font-bold text-emerald-400">100 cm/s²</span>
+                    </div>
+                    <input type="range" id="accel-slider" min="20" max="500" step="10" value="100" class="w-full accent-emerald-500 bg-slate-800 rounded-lg h-1.5 cursor-pointer">
+                </div>
+
+                <!-- Manual Mode Hint -->
+                <div id="control-manual-info" class="hidden text-xs bg-slate-950/80 p-3 rounded-xl border border-indigo-500/30 text-indigo-300 space-y-1">
+                    <p class="font-bold flex items-center gap-1.5"><i class="fa-solid fa-hand-pointer"></i> 手動拉動操作：</p>
+                    <p class="text-slate-400 text-[11px]">請在下方黃色紙帶區，按住滑鼠左鍵或用手指向右拖曳紙帶，體驗親手拉紙帶的記錄軌跡。</p>
+                </div>
+            </div>
+
+            <!-- Execution Buttons -->
+            <div class="bg-slate-900/90 rounded-2xl p-3 border border-slate-800 shadow-xl flex gap-2">
+                <button id="btn-start" class="flex-1 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition flex justify-center items-center gap-2 shadow-lg shadow-indigo-900/40">
+                    <i class="fa-solid fa-play"></i> 開始實驗
+                </button>
+                <button id="btn-pause" disabled class="flex-1 py-2.5 px-4 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl transition flex justify-center items-center gap-2 shadow-lg shadow-amber-900/40">
+                    <i class="fa-solid fa-pause"></i> 暫停
+                </button>
+            </div>
+        </section>
+
+        <!-- Right Column: Canvases & Data Analyses -->
+        <section class="lg:col-span-9 space-y-5">
+            
+            <!-- Physics Cart Simulation Canvas -->
+            <div class="bg-slate-900/90 rounded-2xl border border-slate-800 p-4 shadow-2xl relative space-y-2">
+                <div class="flex justify-between items-center text-xs">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-cubes text-indigo-400"></i>
+                        <span class="font-bold text-slate-200">動態物理過程模擬 (Physical Motion Simulation)</span>
+                    </div>
+                    <span id="status-tag" class="px-2.5 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-300 font-medium">就緒</span>
+                </div>
+
+                <div class="relative w-full h-64 bg-[#0b0f19] rounded-xl border border-slate-800 overflow-hidden">
+                    <canvas id="physics-canvas" class="w-full h-full block"></canvas>
+
+                    <!-- Realtime Metrics Overlay -->
+                    <div class="absolute top-3 right-4 bg-slate-900/80 backdrop-blur-md px-3.5 py-2 rounded-xl border border-slate-800/80 text-xs font-mono space-y-1 shadow-lg">
+                        <div class="text-slate-300">時間 t = <span id="overlay-t" class="text-indigo-400 font-bold">0.00</span> s</div>
+                        <div class="text-slate-300">位移 x = <span id="overlay-x" class="text-cyan-400 font-bold">0.0</span> cm</div>
+                        <div class="text-slate-300">速度 v = <span id="overlay-v" class="text-emerald-400 font-bold">0.0</span> cm/s</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ticker Tape & Ruler Canvas Card -->
+            <div class="bg-slate-900/90 rounded-2xl border border-slate-800 p-4 shadow-2xl space-y-3">
+                <div class="flex justify-between items-center text-xs">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-ruler-horizontal text-amber-400"></i>
+                        <span class="font-bold text-slate-200">紙帶打點記錄與線上直尺 (Interactive Ticker Tape & Ruler)</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="flex items-center gap-1.5 cursor-pointer text-slate-300">
+                            <input type="checkbox" id="toggle-ruler" checked class="rounded border-slate-700 bg-slate-800 text-indigo-500 focus:ring-0">
+                            <span>顯示直尺</span>
+                        </label>
+                        <span class="text-slate-500 text-[11px]">（按住滑鼠左鍵/手指可左右拖拽紙帶精確測量）</span>
+                    </div>
+                </div>
+
+                <div class="relative w-full h-36 bg-[#0b0f19] rounded-xl border border-slate-800 overflow-hidden cursor-grab active:cursor-grabbing">
+                    <canvas id="tape-canvas" class="w-full h-full block"></canvas>
+                </div>
+            </div>
+
+            <!-- Charts and Data Table Tabs -->
+            <div class="bg-slate-900/90 rounded-2xl border border-slate-800 p-4 shadow-2xl space-y-4">
+                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                    <div class="flex gap-4 text-xs font-bold">
+                        <button id="tab-charts-btn" class="text-indigo-400 border-b-2 border-indigo-500 pb-1 flex items-center gap-2">
+                            <i class="fa-solid fa-chart-line"></i> 運動圖像 (x-t / v-t Graphs)
+                        </button>
+                        <button id="tab-table-btn" class="text-slate-400 hover:text-slate-200 pb-1 flex items-center gap-2 transition">
+                            <i class="fa-solid fa-table"></i> 數據記錄表 (Data Table)
+                        </button>
+                    </div>
+                    <span class="text-[11px] text-slate-500">即時繪製打點數據</span>
+                </div>
+
+                <!-- Charts Container -->
+                <div id="view-charts" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                        <h3 class="text-xs font-bold text-center text-slate-300 mb-2">位置-時間圖像 (x-t)</h3>
+                        <div class="h-44">
+                            <canvas id="xt-chart"></canvas>
+                        </div>
+                    </div>
+                    <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                        <h3 class="text-xs font-bold text-center text-slate-300 mb-2">速度-時間圖像 (v-t)</h3>
+                        <div class="h-44">
+                            <canvas id="vt-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Table Container -->
+                <div id="view-table" class="hidden space-y-2">
+                    <div class="overflow-x-auto max-h-56 border border-slate-800 rounded-xl">
+                        <table class="w-full text-left text-xs text-slate-300">
+                            <thead class="bg-slate-800/80 sticky top-0 text-slate-400 font-medium">
+                                <tr>
+                                    <th class="p-2.5 border-b border-slate-700 text-center">點號 (#)</th>
+                                    <th class="p-2.5 border-b border-slate-700">時間 t (s)</th>
+                                    <th class="p-2.5 border-b border-slate-700">累積位置 x (cm)</th>
+                                    <th class="p-2.5 border-b border-slate-700">區間位移 Δx (cm)</th>
+                                    <th class="p-2.5 border-b border-slate-700">平均速度 v (cm/s)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="data-table-body" class="divide-y divide-slate-800/50 font-mono">
+                                <tr>
+                                    <td colspan="5" class="p-4 text-center text-slate-500 italic">尚未紀錄打點數據...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+        </section>
+    </main>
+
+    <!-- JavaScript Engine -->
+    <script>
+        const state = {
+            isRunning: false,
+            time: 0,
+            dt: 0.005,
+            scenario: 'incline-flat',
+            freq: 50,
+            period: 0.02,
+            
+            theta: 30,
+            mu: 0.15,
+            v0: 0,
+            accel: 100,
+            
+            x: 0,
+            v: 0,
+            a: 0,
+            stage: 'incline',
+            inclineLength: 40,
+            
+            isDraggingTape: false,
+            lastDragX: 0,
+            lastDragTime: 0,
+            tapeOffsetX: 0,
+            
+            lastDotTime: 0,
+            dots: [],
+            
+            ruler: {
+                show: true,
+                x: 0,
+                y: 65
+            }
+        };
+
+        const physCanvas = document.getElementById('physics-canvas');
+        const physCtx = physCanvas.getContext('2d');
+        const tapeCanvas = document.getElementById('tape-canvas');
+        const tapeCtx = tapeCanvas.getContext('2d');
+
+        const scenarioSelect = document.getElementById('motion-scenario');
+        const freqSlider = document.getElementById('freq-slider');
+        const freqVal = document.getElementById('freq-val');
+        const thetaSlider = document.getElementById('theta-slider');
+        const thetaVal = document.getElementById('theta-val');
+        const muSlider = document.getElementById('mu-slider');
+        const muVal = document.getElementById('mu-val');
+        const muHint = document.getElementById('mu-hint');
+        const v0Slider = document.getElementById('v0-slider');
+        const v0Val = document.getElementById('v0-val');
+        const accelSlider = document.getElementById('accel-slider');
+        const accelVal = document.getElementById('accel-val');
+
+        const btnStart = document.getElementById('btn-start');
+        const btnPause = document.getElementById('btn-pause');
+        const btnReset = document.getElementById('btn-reset');
+        const btnExportCsv = document.getElementById('btn-export-csv');
+        const toggleRuler = document.getElementById('toggle-ruler');
+        const statusTag = document.getElementById('status-tag');
+
+        const overlayT = document.getElementById('overlay-t');
+        const overlayX = document.getElementById('overlay-x');
+        const overlayV = document.getElementById('overlay-v');
+        const dataTableBody = document.getElementById('data-table-body');
+
+        const SCALE = 8; // Scale: 8 pixels per cm
+
+        let xtChart, vtChart;
+
+        function initCharts() {
+            const commonOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        grid: { color: 'rgba(51, 65, 85, 0.4)' },
+                        ticks: { color: '#64748b', font: { size: 9 } }
+                    },
+                    y: {
+                        grid: { color: 'rgba(51, 65, 85, 0.4)' },
+                        ticks: { color: '#64748b', font: { size: 9 } }
+                    }
+                },
+                plugins: { legend: { display: false } }
+            };
+
+            const xtCtx = document.getElementById('xt-chart').getContext('2d');
+            xtChart = new Chart(xtCtx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        data: [],
+                        borderColor: '#818cf8',
+                        backgroundColor: '#818cf8',
+                        borderWidth: 1.5,
+                        pointRadius: 2.5,
+                        tension: 0.1
+                    }]
+                },
+                options: commonOptions
+            });
+
+            const vtCtx = document.getElementById('vt-chart').getContext('2d');
+            vtChart = new Chart(vtCtx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        data: [],
+                        borderColor: '#22d3ee',
+                        backgroundColor: '#22d3ee',
+                        borderWidth: 1.5,
+                        pointRadius: 2.5,
+                        tension: 0.1
+                    }]
+                },
+                options: commonOptions
+            });
+        }
+
+        scenarioSelect.addEventListener('change', (e) => {
+            state.scenario = e.target.value;
+            updatePanelVisibility();
+            resetSimulation();
+        });
+
+        freqSlider.addEventListener('input', (e) => {
+            state.freq = parseInt(e.target.value);
+            state.period = 1 / state.freq;
+            freqVal.textContent = `${state.freq} Hz`;
+        });
+
+        thetaSlider.addEventListener('input', (e) => {
+            state.theta = parseInt(e.target.value);
+            thetaVal.textContent = `${state.theta}°`;
+            if (!state.isRunning) resetSimulation();
+        });
+
+        muSlider.addEventListener('input', (e) => {
+            state.mu = parseFloat(e.target.value);
+            muVal.textContent = state.mu.toFixed(2);
+            if (state.mu === 0) {
+                muHint.textContent = '※ 當 μ = 0.00 時，進入平面做等速運動（慣性定律）';
+                muHint.className = 'text-[11px] text-emerald-400 font-semibold mt-1 leading-tight';
+            } else {
+                muHint.textContent = '※ 平面受到動摩擦阻力減速';
+                muHint.className = 'text-[11px] text-amber-500/80 mt-1 leading-tight';
+            }
+            if (!state.isRunning) resetSimulation();
+        });
+
+        v0Slider.addEventListener('input', (e) => {
+            state.v0 = parseInt(e.target.value);
+            v0Val.textContent = `${state.v0.toFixed(1)} cm/s`;
+            if (!state.isRunning) resetSimulation();
+        });
+
+        accelSlider.addEventListener('input', (e) => {
+            state.accel = parseInt(e.target.value);
+            accelVal.textContent = `${state.accel} cm/s²`;
+            if (!state.isRunning) resetSimulation();
+        });
+
+        toggleRuler.addEventListener('change', (e) => {
+            state.ruler.show = e.target.checked;
+        });
+
+        const tabChartsBtn = document.getElementById('tab-charts-btn');
+        const tabTableBtn = document.getElementById('tab-table-btn');
+        const viewCharts = document.getElementById('view-charts');
+        const viewTable = document.getElementById('view-table');
+
+        tabChartsBtn.addEventListener('click', () => {
+            tabChartsBtn.className = 'text-indigo-400 border-b-2 border-indigo-500 pb-1 flex items-center gap-2';
+            tabTableBtn.className = 'text-slate-400 hover:text-slate-200 pb-1 flex items-center gap-2 transition';
+            viewCharts.classList.remove('hidden');
+            viewTable.classList.add('hidden');
+        });
+
+        tabTableBtn.addEventListener('click', () => {
+            tabTableBtn.className = 'text-indigo-400 border-b-2 border-indigo-500 pb-1 flex items-center gap-2';
+            tabChartsBtn.className = 'text-slate-400 hover:text-slate-200 pb-1 flex items-center gap-2 transition';
+            viewTable.classList.remove('hidden');
+            viewCharts.classList.add('hidden');
+        });
+
+        function updatePanelVisibility() {
+            document.getElementById('control-theta').classList.add('hidden');
+            document.getElementById('control-mu').classList.add('hidden');
+            document.getElementById('control-v0').classList.add('hidden');
+            document.getElementById('control-accel').classList.add('hidden');
+            document.getElementById('control-manual-info').classList.add('hidden');
+
+            if (state.scenario === 'incline-flat') {
+                document.getElementById('control-theta').classList.remove('hidden');
+                document.getElementById('control-mu').classList.remove('hidden');
+                document.getElementById('control-v0').classList.remove('hidden');
+            } else if (state.scenario === 'manual-pull') {
+                document.getElementById('control-manual-info').classList.remove('hidden');
+            } else if (state.scenario === 'free-fall') {
+                // Free fall defaults to v0 = 0
+            } else if (state.scenario === 'constant-velocity') {
+                document.getElementById('control-v0').classList.remove('hidden');
+            } else if (state.scenario === 'accel-pos') {
+                document.getElementById('control-v0').classList.remove('hidden');
+                document.getElementById('control-accel').classList.remove('hidden');
+            } else if (state.scenario === 'accel-neg') {
+                document.getElementById('control-v0').classList.remove('hidden');
+                document.getElementById('control-accel').classList.remove('hidden');
+            }
+        }
+
+        function updatePhysics() {
+            if (!state.isRunning || state.scenario === 'manual-pull') return;
+
+            const subSteps = 5;
+            const subDt = state.dt / subSteps;
+            const g = 980; // cm/s^2
+
+            for (let step = 0; step < subSteps; step++) {
+                state.time += subDt;
+
+                if (state.scenario === 'incline-flat') {
+                    if (state.stage === 'incline') {
+                        state.a = g * Math.sin(state.theta * Math.PI / 180);
+                        if (state.x >= state.inclineLength) {
+                            state.stage = 'flat';
+                        }
+                    } else if (state.stage === 'flat') {
+                        state.a = -state.mu * g;
+                    }
+                } else if (state.scenario === 'free-fall') {
+                    state.a = g;
+                } else if (state.scenario === 'constant-velocity') {
+                    state.a = 0;
+                } else if (state.scenario === 'accel-pos') {
+                    state.a = state.accel;
+                } else if (state.scenario === 'accel-neg') {
+                    state.a = -state.accel;
+                }
+
+                state.v += state.a * subDt;
+
+                // Stop conditions for deceleration or hitting zero velocity
+                if ((state.scenario === 'accel-neg' || state.stage === 'flat') && state.v <= 0) {
+                    state.v = 0;
+                    state.a = 0;
+                    state.stage = 'stopped';
+                    state.isRunning = false;
+                    btnStart.disabled = true;
+                    btnPause.disabled = true;
+                    statusTag.textContent = '靜止';
+                    statusTag.className = 'px-2.5 py-0.5 rounded-full text-[11px] bg-rose-950 text-rose-300 border border-rose-800/80 font-medium';
+                }
+
+                state.x += state.v * subDt;
+
+                if (state.time - state.lastDotTime >= state.period) {
+                    state.lastDotTime += state.period;
+                    recordDot(state.lastDotTime, state.x);
+                }
+            }
+
+            overlayT.textContent = state.time.toFixed(2);
+            overlayX.textContent = state.x.toFixed(1);
+            overlayV.textContent = state.v.toFixed(1);
+
+            if (state.x > 350 && state.isRunning) {
+                state.isRunning = false;
+                btnStart.disabled = true;
+                btnPause.disabled = true;
+                statusTag.textContent = '到達極限';
+            }
+        }
+
+        function recordDot(time, position) {
+            const index = state.dots.length;
+            let dx = 0;
+            let vCalc = 0;
+
+            if (index > 0) {
+                const prevDot = state.dots[index - 1];
+                dx = position - prevDot.x;
+                vCalc = dx / state.period;
+            }
+
+            const dotData = {
+                index: index,
+                time: parseFloat(time.toFixed(3)),
+                x: parseFloat(position.toFixed(2)),
+                dx: parseFloat(dx.toFixed(2)),
+                v: parseFloat(vCalc.toFixed(2))
+            };
+
+            state.dots.push(dotData);
+            appendTableRow(dotData);
+
+            xtChart.data.datasets[0].data.push({ x: dotData.time, y: dotData.x });
+            vtChart.data.datasets[0].data.push({ x: dotData.time, y: dotData.v });
+            
+            xtChart.update();
+            vtChart.update();
+        }
+
+        function appendTableRow(dot) {
+            if (state.dots.length === 1) {
+                dataTableBody.innerHTML = '';
+            }
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-800/40 transition-colors';
+            tr.innerHTML = `
+                <td class="p-2.5 text-center text-indigo-400 font-bold">${dot.index}</td>
+                <td class="p-2.5">${dot.time.toFixed(3)}</td>
+                <td class="p-2.5 text-cyan-300">${dot.x.toFixed(2)}</td>
+                <td class="p-2.5 text-emerald-400">${dot.index === 0 ? '-' : dot.dx.toFixed(2)}</td>
+                <td class="p-2.5 text-indigo-300">${dot.index === 0 ? '-' : dot.v.toFixed(2)}</td>
+            `;
+            dataTableBody.appendChild(tr);
+        }
+
+        function resizeCanvases() {
+            const physRect = physCanvas.parentElement.getBoundingClientRect();
+            physCanvas.width = physRect.width;
+            physCanvas.height = physRect.height;
+
+            const tapeRect = tapeCanvas.parentElement.getBoundingClientRect();
+            tapeCanvas.width = tapeRect.width;
+            tapeCanvas.height = tapeRect.height;
+        }
+
+        function drawPhysicsSimulation() {
+            physCtx.clearRect(0, 0, physCanvas.width, physCanvas.height);
+
+            if (state.scenario === 'free-fall') {
+                // Free Fall: Vertical Motion Rendering
+                const topX = physCanvas.width / 2;
+                const topY = 20;
+
+                // Ceiling Rig / Tower
+                physCtx.fillStyle = '#1e293b';
+                physCtx.fillRect(topX - 60, topY, 120, 16);
+                physCtx.strokeStyle = '#475569';
+                physCtx.lineWidth = 2;
+                physCtx.strokeRect(topX - 60, topY, 120, 16);
+
+                // Ticker Box on ceiling
+                physCtx.fillStyle = '#334155';
+                physCtx.fillRect(topX - 15, topY + 16, 30, 24);
+                physCtx.strokeRect(topX - 15, topY + 16, 30, 24);
+
+                const dropY = topY + 40 + state.x * (SCALE * 0.5);
+
+                // Vertical Yellow Paper Tape
+                physCtx.fillStyle = '#fef3c7';
+                physCtx.fillRect(topX - 5, topY + 40, 10, Math.max(0, dropY - (topY + 40)));
+
+                // Vertical Weight/Mass
+                physCtx.fillStyle = '#f59e0b';
+                physCtx.beginPath();
+                physCtx.arc(topX, dropY + 12, 12, 0, Math.PI * 2);
+                physCtx.fill();
+                physCtx.strokeStyle = '#d97706';
+                physCtx.lineWidth = 2;
+                physCtx.stroke();
+
+                physCtx.fillStyle = '#0f172a';
+                physCtx.font = 'bold 9px sans-serif';
+                physCtx.textAlign = 'center';
+                physCtx.fillText('m', topX, dropY + 15);
+                physCtx.textAlign = 'left';
+
+            } else {
+                // Horizontal / Incline Scenarios
+                const startX = 60;
+                const startY = 40;
+                const angleRad = state.theta * Math.PI / 180;
+                const inclinePixelLen = state.inclineLength * SCALE;
+
+                const breakX = startX + inclinePixelLen * Math.cos(angleRad);
+                const breakY = startY + inclinePixelLen * Math.sin(angleRad);
+                const endX = physCanvas.width - 40;
+                const endY = (state.scenario === 'incline-flat') ? breakY : 180;
+
+                // Render Incline Track if scenario matches
+                if (state.scenario === 'incline-flat') {
+                    physCtx.fillStyle = '#111827';
+                    physCtx.beginPath();
+                    physCtx.moveTo(startX, startY);
+                    physCtx.lineTo(breakX, breakY);
+                    physCtx.lineTo(startX, breakY);
+                    physCtx.closePath();
+                    physCtx.fill();
+
+                    physCtx.strokeStyle = '#38bdf8';
+                    physCtx.lineWidth = 3;
+                    physCtx.beginPath();
+                    physCtx.moveTo(startX, startY);
+                    physCtx.lineTo(breakX, breakY);
+                    physCtx.stroke();
+                }
+
+                // Render Flat Track
+                physCtx.beginPath();
+                physCtx.moveTo(state.scenario === 'incline-flat' ? breakX : startX, endY);
+                physCtx.lineTo(endX, endY);
+                physCtx.strokeStyle = '#475569';
+                physCtx.lineWidth = 3;
+                physCtx.stroke();
+
+                // Ticker Station
+                const stationY = (state.scenario === 'incline-flat') ? startY : endY;
+                physCtx.fillStyle = '#1e293b';
+                physCtx.strokeStyle = '#64748b';
+                physCtx.lineWidth = 2;
+                physCtx.fillRect(startX - 35, stationY - 15, 30, 20);
+                physCtx.strokeRect(startX - 35, stationY - 15, 30, 20);
+
+                let cartX = startX;
+                let cartY = stationY;
+                let currentAngle = (state.scenario === 'incline-flat') ? angleRad : 0;
+
+                const posPixels = state.x * SCALE;
+
+                if (state.scenario === 'incline-flat') {
+                    if (posPixels <= inclinePixelLen) {
+                        cartX = startX + posPixels * Math.cos(angleRad);
+                        cartY = startY + posPixels * Math.sin(angleRad);
+                    } else {
+                        cartX = breakX + (posPixels - inclinePixelLen);
+                        cartY = breakY;
+                        currentAngle = 0;
+                    }
+                } else {
+                    cartX = startX + posPixels;
+                    cartY = endY;
+                }
+
+                // Paper Tape Behind Cart
+                physCtx.strokeStyle = '#fde68a';
+                physCtx.lineWidth = 2.5;
+                physCtx.beginPath();
+                physCtx.moveTo(startX - 5, stationY - 5);
+                physCtx.lineTo(cartX, cartY - 5);
+                physCtx.stroke();
+
+                // Render Metallic Cart
+                physCtx.save();
+                physCtx.translate(cartX, cartY);
+                physCtx.rotate(currentAngle);
+
+                const cartW = 34;
+                const cartH = 14;
+
+                physCtx.fillStyle = '#0284c7';
+                physCtx.fillRect(-cartW/2, -cartH - 6, cartW, cartH);
+                physCtx.strokeStyle = '#38bdf8';
+                physCtx.lineWidth = 1.5;
+                physCtx.strokeRect(-cartW/2, -cartH - 6, cartW, cartH);
+
+                // Wheels
+                physCtx.fillStyle = '#e2e8f0';
+                physCtx.beginPath();
+                physCtx.arc(-cartW/3, -5, 4, 0, Math.PI * 2);
+                physCtx.arc(cartW/3, -5, 4, 0, Math.PI * 2);
+                physCtx.fill();
+                physCtx.strokeStyle = '#0f172a';
+                physCtx.stroke();
+
+                physCtx.restore();
+            }
+        }
+
+        function drawTapeAndRuler() {
+            tapeCtx.clearRect(0, 0, tapeCanvas.width, tapeCanvas.height);
+
+            const tapeY = 35;
+            const tapeHeight = 24;
+            const startX = 30 + state.tapeOffsetX;
+
+            // Yellow Paper Strip
+            tapeCtx.fillStyle = '#fef3c7';
+            tapeCtx.fillRect(0, tapeY, tapeCanvas.width, tapeHeight);
+            tapeCtx.strokeStyle = '#fde68a';
+            tapeCtx.strokeRect(0, tapeY, tapeCanvas.width, tapeHeight);
+
+            // Red Dots
+            tapeCtx.fillStyle = '#dc2626';
+            state.dots.forEach(dot => {
+                const dotX = startX + dot.x * SCALE;
+                if (dotX >= 0 && dotX <= tapeCanvas.width) {
+                    tapeCtx.beginPath();
+                    tapeCtx.arc(dotX, tapeY + tapeHeight / 2, 2.5, 0, Math.PI * 2);
+                    tapeCtx.fill();
+
+                    tapeCtx.fillStyle = '#78350f';
+                    tapeCtx.font = '8px sans-serif';
+                    tapeCtx.fillText(dot.index, dotX - 2, tapeY - 4);
+                    tapeCtx.fillStyle = '#dc2626';
+                }
+            });
+
+            // Ruler Rendering
+            if (state.ruler.show) {
+                const rulerY = state.ruler.y;
+                const rulerHeight = 45;
+
+                tapeCtx.fillStyle = '#ffffff';
+                tapeCtx.fillRect(0, rulerY, tapeCanvas.width, rulerHeight);
+                tapeCtx.strokeStyle = '#cbd5e1';
+                tapeCtx.lineWidth = 1;
+                tapeCtx.strokeRect(0, rulerY, tapeCanvas.width, rulerHeight);
+
+                tapeCtx.fillStyle = '#0f172a';
+                tapeCtx.strokeStyle = '#0f172a';
+                tapeCtx.font = '9px sans-serif';
+
+                const totalCm = Math.floor(tapeCanvas.width / SCALE);
+                for (let cm = 0; cm <= totalCm; cm++) {
+                    const x = cm * SCALE;
+
+                    tapeCtx.beginPath();
+                    tapeCtx.moveTo(x, rulerY);
+                    tapeCtx.lineTo(x, rulerY + 16);
+                    tapeCtx.stroke();
+                    tapeCtx.fillText(`${cm}`, x + 2, rulerY + 28);
+
+                    for (let mm = 1; mm < 10; mm++) {
+                        const mmX = x + mm * (SCALE / 10);
+                        const h = mm === 5 ? 11 : 6;
+                        tapeCtx.beginPath();
+                        tapeCtx.moveTo(mmX, rulerY);
+                        tapeCtx.lineTo(mmX, rulerY + h);
+                        tapeCtx.stroke();
+                    }
+                }
+            }
+        }
+
+        function handleTapePointerDown(e) {
+            const rect = tapeCanvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            
+            state.isDraggingTape = true;
+            state.lastDragX = clientX - rect.left;
+            state.lastDragTime = performance.now() / 1000;
+
+            if (state.scenario === 'manual-pull' && !state.isRunning) {
+                state.isRunning = true;
+                statusTag.textContent = '手動拉動中';
+                statusTag.className = 'px-2.5 py-0.5 rounded-full text-[11px] bg-amber-950 text-amber-300 border border-amber-800/80 font-medium';
+            }
+        }
+
+        function handleTapePointerMove(e) {
+            if (!state.isDraggingTape) return;
+
+            const rect = tapeCanvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const currentX = clientX - rect.left;
+            const deltaX = currentX - state.lastDragX;
+
+            if (state.scenario === 'manual-pull') {
+                const now = performance.now() / 1000;
+                const dt = now - state.lastDragTime;
+
+                if (dt > 0.005) {
+                    const dxCm = Math.max(0, deltaX) / SCALE;
+                    state.x += dxCm;
+                    state.v = dxCm / dt;
+                    state.time += dt;
+
+                    overlayT.textContent = state.time.toFixed(2);
+                    overlayX.textContent = state.x.toFixed(1);
+                    overlayV.textContent = state.v.toFixed(1);
+
+                    if (state.time - state.lastDotTime >= state.period) {
+                        state.lastDotTime = state.time;
+                        recordDot(state.time, state.x);
+                    }
+                    state.lastDragTime = now;
+                }
+            } else {
+                state.tapeOffsetX += deltaX;
+            }
+
+            state.lastDragX = currentX;
+        }
+
+        function handleTapePointerUp() {
+            if (state.isDraggingTape) {
+                state.isDraggingTape = false;
+                if (state.scenario === 'manual-pull') {
+                    state.v = 0;
+                    state.isRunning = false;
+                    statusTag.textContent = '拉動結束';
+                }
+            }
+        }
+
+        tapeCanvas.addEventListener('mousedown', handleTapePointerDown);
+        tapeCanvas.addEventListener('mousemove', handleTapePointerMove);
+        window.addEventListener('mouseup', handleTapePointerUp);
+
+        tapeCanvas.addEventListener('touchstart', handleTapePointerDown, { passive: true });
+        tapeCanvas.addEventListener('touchmove', handleTapePointerMove, { passive: true });
+        window.addEventListener('touchend', handleTapePointerUp);
+
+        btnStart.addEventListener('click', () => {
+            if (state.isRunning) return;
+            state.isRunning = true;
+            btnStart.disabled = true;
+            btnPause.disabled = false;
+            scenarioSelect.disabled = true;
+            statusTag.textContent = '模擬中';
+            statusTag.className = 'px-2.5 py-0.5 rounded-full text-[11px] bg-emerald-950 text-emerald-300 border border-emerald-800/80 font-medium';
+        });
+
+        btnPause.addEventListener('click', () => {
+            state.isRunning = false;
+            btnStart.disabled = false;
+            btnPause.disabled = true;
+            statusTag.textContent = '已暫停';
+            statusTag.className = 'px-2.5 py-0.5 rounded-full text-[11px] bg-amber-950 text-amber-300 border border-amber-800/80 font-medium';
+        });
+
+        function resetSimulation() {
+            state.isRunning = false;
+            state.time = 0;
+            state.x = 0;
+            
+            // Set initial speed based on mode
+            if (state.scenario === 'accel-neg' && state.v0 === 0) {
+                state.v0 = 150; // default initial velocity for deceleration
+                v0Slider.value = 150;
+                v0Val.textContent = '150.0 cm/s';
+            }
+            
+            state.v = state.v0;
+            state.a = 0;
+            state.stage = 'incline';
+            state.lastDotTime = 0;
+            state.dots = [];
+            state.tapeOffsetX = 0;
+
+            btnStart.disabled = false;
+            btnPause.disabled = true;
+            scenarioSelect.disabled = false;
+
+            statusTag.textContent = '就緒';
+            statusTag.className = 'px-2.5 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-300 font-medium';
+            
+            overlayT.textContent = '0.00';
+            overlayX.textContent = '0.0';
+            overlayV.textContent = state.v0.toFixed(1);
+
+            dataTableBody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-500 italic">尚未紀錄打點數據...</td></tr>';
+
+            if (xtChart && vtChart) {
+                xtChart.data.datasets[0].data = [];
+                vtChart.data.datasets[0].data = [];
+                xtChart.update();
+                vtChart.update();
+            }
+
+            recordDot(0, 0);
+        }
+
+        btnReset.addEventListener('click', resetSimulation);
+
+        btnExportCsv.addEventListener('click', () => {
+            if (state.dots.length === 0) return;
+            let csv = "data:text/csv;charset=utf-8,點號,時間t(s),位置x(cm),區間位移dx(cm),速度v(cm/s)\n";
+            state.dots.forEach(d => { csv += `${d.index},${d.time},${d.x},${d.dx},${d.v}\n`; });
+            const link = document.createElement("a");
+            link.setAttribute("href", encodeURI(csv));
+            link.setAttribute("download", `ticker_tape_data.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        function animationLoop() {
+            updatePhysics();
+            drawPhysicsSimulation();
+            drawTapeAndRuler();
+            requestAnimationFrame(animationLoop);
+        }
+
+        window.addEventListener('load', () => {
+            resizeCanvases();
+            window.addEventListener('resize', resizeCanvases);
+            initCharts();
+            updatePanelVisibility();
+            resetSimulation();
+            requestAnimationFrame(animationLoop);
+        });
+    </script>
+</body>
+</html>
