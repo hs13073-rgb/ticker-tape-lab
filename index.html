@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>打點計時器虛擬實驗室 (Ticker Tape Timer Interactive Physics Lab)</title>
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -16,6 +16,11 @@
       background-color: #0b0f19;
       color: #f8fafc;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      /* 防止拖拽時選取文字/元素造成模糊 */
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
     }
     
     .card-panel {
@@ -23,6 +28,18 @@
       border: 1px solid #1f2937;
       border-radius: 0.75rem;
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+    }
+
+    /* 防止 Canvas 在高 DPI 或拖拽時渲染模糊 */
+    canvas {
+      image-rendering: -webkit-optimize-contrast;
+      image-rendering: crisp-edges;
+      image-rendering: pixelated;
+    }
+
+    /* 關鍵修復：停用畫布預設觸控滑動行為，確保平板/手機可手勢拖拽 */
+    .touch-none {
+      touch-action: none;
     }
 
     ::-webkit-scrollbar {
@@ -210,18 +227,18 @@
             <span id="simStatus" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">就緒</span>
           </div>
 
-          <div class="relative w-full h-[220px] bg-slate-950 rounded border border-slate-800 overflow-hidden">
-            <canvas id="physicsCanvas" class="w-full h-full"></canvas>
+          <div id="physicsContainer" class="relative w-full h-[220px] bg-slate-950 rounded border border-slate-800 overflow-hidden touch-none">
+            <canvas id="physicsCanvas" class="w-full h-full block"></canvas>
             
-            <div class="absolute top-2.5 right-2.5 bg-slate-900/80 backdrop-blur border border-slate-800 p-2 rounded text-[11px] space-y-0.5 font-mono">
+            <div class="absolute top-2.5 right-2.5 bg-slate-900/80 backdrop-blur border border-slate-800 p-2 rounded text-[11px] space-y-0.5 font-mono pointer-events-none">
               <div class="flex justify-between gap-3"><span class="text-slate-400">時間 t =</span><span id="hudTime" class="text-blue-400 font-bold">0.00 s</span></div>
               <div class="flex justify-between gap-3"><span class="text-slate-400">位移 x =</span><span id="hudPos" class="text-cyan-400 font-bold">0.0 cm</span></div>
               <div class="flex justify-between gap-3"><span class="text-slate-400">速度 v =</span><span id="hudVel" class="text-emerald-400 font-bold">0.0 cm/s</span></div>
             </div>
 
-            <div id="manualOverlay" class="hidden absolute inset-0 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center cursor-grab active:cursor-grabbing select-none">
-              <i class="fa-solid fa-hand-pointer text-3xl text-blue-400 animate-bounce mb-1"></i>
-              <p class="text-xs font-semibold text-slate-200">請在下方紙帶區按住拖拽以手動拉動紙帶</p>
+            <!-- 手動拉動提示標示 (僅在手動模式顯示) -->
+            <div id="manualHint" class="hidden absolute bottom-3 left-1/2 -translate-x-1/2 bg-blue-950/80 text-blue-300 border border-blue-700/60 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur flex items-center gap-2 pointer-events-none animate-pulse">
+              <i class="fa-solid fa-hand-pointer"></i> 按住滑鼠/手指拖拽滑車
             </div>
           </div>
         </div>
@@ -238,8 +255,8 @@
             </label>
           </div>
 
-          <div id="tapeContainer" class="relative w-full h-[120px] bg-slate-950 rounded border border-slate-800 overflow-hidden cursor-grab active:cursor-grabbing">
-            <canvas id="tapeCanvas" class="w-full h-full"></canvas>
+          <div id="tapeContainer" class="relative w-full h-[120px] bg-slate-950 rounded border border-slate-800 overflow-hidden cursor-grab active:cursor-grabbing touch-none">
+            <canvas id="tapeCanvas" class="w-full h-full block"></canvas>
           </div>
           <p class="text-[10px] text-slate-500 mt-1 text-right">（按住滑鼠左鍵/手指可左右拖拽紙帶精確讀數）</p>
         </div>
@@ -356,15 +373,17 @@
     const resetBtn = document.getElementById('resetBtn');
     const simStatus = document.getElementById('simStatus');
 
+    const physicsContainer = document.getElementById('physicsContainer');
     const physicsCanvas = document.getElementById('physicsCanvas');
     const pCtx = physicsCanvas.getContext('2d');
+    const tapeContainer = document.getElementById('tapeContainer');
     const tapeCanvas = document.getElementById('tapeCanvas');
     const tCtx = tapeCanvas.getContext('2d');
 
     const hudTime = document.getElementById('hudTime');
     const hudPos = document.getElementById('hudPos');
     const hudVel = document.getElementById('hudVel');
-    const manualOverlay = document.getElementById('manualOverlay');
+    const manualHint = document.getElementById('manualHint');
 
     const autoSelectCheck = document.getElementById('autoSelectCheck');
     const p1Select = document.getElementById('p1Select');
@@ -389,11 +408,26 @@
 
     window.addEventListener('resize', resizeCanvases);
 
+    // DPI 防模糊與重繪
     function resizeCanvases() {
-      physicsCanvas.width = physicsCanvas.parentElement.clientWidth;
-      physicsCanvas.height = physicsCanvas.parentElement.clientHeight;
-      tapeCanvas.width = tapeCanvas.parentElement.clientWidth;
-      tapeCanvas.height = tapeCanvas.parentElement.clientHeight;
+      const dpr = window.devicePixelRatio || 1;
+      
+      const pWidth = physicsCanvas.parentElement.clientWidth;
+      const pHeight = physicsCanvas.parentElement.clientHeight;
+      physicsCanvas.width = pWidth * dpr;
+      physicsCanvas.height = pHeight * dpr;
+      pCtx.scale(dpr, dpr);
+      physicsCanvas.style.width = pWidth + 'px';
+      physicsCanvas.style.height = pHeight + 'px';
+
+      const tWidth = tapeCanvas.parentElement.clientWidth;
+      const tHeight = tapeCanvas.parentElement.clientHeight;
+      tapeCanvas.width = tWidth * dpr;
+      tapeCanvas.height = tHeight * dpr;
+      tCtx.scale(dpr, dpr);
+      tapeCanvas.style.width = tWidth + 'px';
+      tapeCanvas.style.height = tHeight + 'px';
+
       drawPhysicsScene();
       drawTapeScene();
     }
@@ -441,7 +475,8 @@
     function updateModeUI() {
       param1Group.classList.remove('hidden');
       param2Group.classList.remove('hidden');
-      manualOverlay.classList.add('hidden');
+      manualHint.classList.add('hidden');
+      physicsContainer.style.cursor = 'default';
 
       if (currentMode === 'const_a_acc') {
         param1Label.textContent = "初速度 v₀ (cm/s)";
@@ -478,7 +513,8 @@
       } else if (currentMode === 'manual') {
         param1Group.classList.add('hidden');
         param2Group.classList.add('hidden');
-        manualOverlay.classList.remove('hidden');
+        manualHint.classList.remove('hidden');
+        physicsContainer.style.cursor = 'grab';
       }
       updateAccVerification();
     }
@@ -525,7 +561,6 @@
       return { x, v, a };
     }
 
-    // 更新點次選取下拉選單
     function updatePointSelects() {
       const len = dotsData.length;
       if (autoSelectCheck.checked && len >= 3) {
@@ -550,7 +585,6 @@
       }
     }
 
-    // --- 加速度驗算邏輯 (支援自訂點次選取) ---
     function updateAccVerification() {
       let theoryA = 0;
       let formulaStr = "";
@@ -708,10 +742,13 @@
       hudVel.textContent = `${velV.toFixed(1)} cm/s`;
     }
 
+    // 防模糊優化：整數化座標畫布渲染
     function drawPhysicsScene() {
-      const w = physicsCanvas.width;
-      const h = physicsCanvas.height;
+      const w = physicsCanvas.parentElement.clientWidth;
+      const h = physicsCanvas.parentElement.clientHeight;
       pCtx.clearRect(0, 0, w, h);
+
+      pCtx.save();
 
       if (currentMode === 'incline_flat') {
         let angle = param1 * Math.PI / 180;
@@ -747,30 +784,32 @@
         pCtx.beginPath(); pCtx.moveTo(startX - 10, startY - 8); pCtx.lineTo(cartX, cartY - 8);
         pCtx.strokeStyle = '#fef08a'; pCtx.lineWidth = 3; pCtx.stroke();
 
-        pCtx.save(); pCtx.translate(cartX, cartY); pCtx.rotate(cartAngle);
+        pCtx.save(); 
+        pCtx.translate(Math.round(cartX), Math.round(cartY)); 
+        pCtx.rotate(cartAngle);
         pCtx.fillStyle = '#3b82f6'; pCtx.fillRect(-15, -14, 30, 12);
         pCtx.fillStyle = '#94a3b8';
         pCtx.beginPath(); pCtx.arc(-8, -2, 4, 0, Math.PI*2); pCtx.arc(8, -2, 4, 0, Math.PI*2); pCtx.fill();
         pCtx.restore();
 
       } else if (currentMode === 'freefall') {
-        let startX = w / 2, startY = 30, scale = 1.2;
+        let startX = Math.round(w / 2), startY = 30, scale = 1.2;
         pCtx.fillStyle = '#334155'; pCtx.fillRect(startX - 30, 5, 60, 15);
 
-        let weightY = startY + posX * scale;
+        let weightY = Math.round(startY + posX * scale);
         pCtx.beginPath(); pCtx.moveTo(startX, startY); pCtx.lineTo(startX, weightY);
         pCtx.strokeStyle = '#fef08a'; pCtx.lineWidth = 4; pCtx.stroke();
 
         pCtx.fillStyle = '#e2e8f0'; pCtx.fillRect(startX - 10, weightY, 20, 24);
 
       } else {
-        let startX = 50, startY = h / 2 + 10, scale = 2.0;
+        let startX = 50, startY = Math.round(h / 2 + 10), scale = 2.0;
         pCtx.beginPath(); pCtx.moveTo(20, startY); pCtx.lineTo(w - 20, startY);
         pCtx.strokeStyle = '#475569'; pCtx.stroke();
 
         pCtx.fillStyle = '#334155'; pCtx.fillRect(startX - 30, startY - 25, 25, 25);
 
-        let cartX = startX + posX * scale;
+        let cartX = Math.round(startX + posX * scale);
         pCtx.beginPath(); pCtx.moveTo(startX - 10, startY - 10); pCtx.lineTo(cartX - 15, startY - 10);
         pCtx.strokeStyle = '#fef08a'; pCtx.lineWidth = 4; pCtx.stroke();
 
@@ -778,24 +817,26 @@
         pCtx.fillStyle = '#94a3b8';
         pCtx.beginPath(); pCtx.arc(cartX - 8, startY - 2, 4, 0, Math.PI*2); pCtx.arc(cartX + 8, startY - 2, 4, 0, Math.PI*2); pCtx.fill();
       }
+
+      pCtx.restore();
     }
 
     function drawTapeScene() {
-      const w = tapeCanvas.width;
-      const h = tapeCanvas.height;
+      const w = tapeCanvas.parentElement.clientWidth;
+      const h = tapeCanvas.parentElement.clientHeight;
       tCtx.clearRect(0, 0, w, h);
 
       let tapeY = 25, tapeHeight = 25, scale = 5;
 
       tCtx.save();
-      tCtx.translate(tapeOffsetX, 0);
+      tCtx.translate(Math.round(tapeOffsetX), 0);
 
       tCtx.fillStyle = '#fef08a';
       tCtx.fillRect(15, tapeY, w * 5, tapeHeight);
 
       dotsData.forEach((dot, idx) => {
-        let dotX = 25 + dot.x * scale;
-        let dotY = tapeY + tapeHeight / 2;
+        let dotX = Math.round(25 + dot.x * scale);
+        let dotY = Math.round(tapeY + tapeHeight / 2);
 
         let isSelected = (idx === selectedP1 || idx === selectedP2 || idx === selectedP3);
 
@@ -823,7 +864,7 @@
         tCtx.strokeStyle = '#0f172a'; tCtx.lineWidth = 1;
 
         for (let mm = 0; mm <= 2000; mm++) {
-          let markX = 25 + (mm / 10) * scale;
+          let markX = Math.round(25 + (mm / 10) * scale);
           let tickLen = 4;
 
           if (mm % 10 === 0) {
@@ -842,34 +883,87 @@
       tCtx.restore();
     }
 
-    tapeCanvas.addEventListener('mousedown', (e) => { isDraggingTape = true; dragStartX = e.clientX - tapeOffsetX; });
-    window.addEventListener('mousemove', (e) => { if (isDraggingTape) { tapeOffsetX = e.clientX - dragStartX; drawTapeScene(); } });
-    window.addEventListener('mouseup', () => { isDraggingTape = false; });
+    // --- 平板與滑鼠共通：拖拽紙帶直尺 ---
+    const handleTapeStart = (clientX) => {
+      isDraggingTape = true;
+      dragStartX = clientX - tapeOffsetX;
+    };
+    const handleTapeMove = (clientX) => {
+      if (isDraggingTape) {
+        tapeOffsetX = clientX - dragStartX;
+        drawTapeScene();
+      }
+    };
+    const handleTapeEnd = () => { isDraggingTape = false; };
 
-    manualOverlay.addEventListener('mousedown', (e) => { isManualPulling = true; lastManualX = e.clientX; lastManualTime = performance.now() / 1000; });
-    window.addEventListener('mousemove', (e) => {
+    tapeContainer.addEventListener('mousedown', (e) => handleTapeStart(e.clientX));
+    window.addEventListener('mousemove', (e) => handleTapeMove(e.clientX));
+    window.addEventListener('mouseup', handleTapeEnd);
+
+    tapeContainer.addEventListener('touchstart', (e) => {
+      if (e.touches.length > 0) handleTapeStart(e.touches[0].clientX);
+    }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      if (isDraggingTape && e.touches.length > 0) handleTapeMove(e.touches[0].clientX);
+    }, { passive: true });
+    window.addEventListener('touchend', handleTapeEnd);
+
+    // --- 平板與滑鼠共通：手動拖拽拉動滑車 ---
+    const handleManualStart = (clientX) => {
+      if (currentMode !== 'manual') return;
+      isManualPulling = true;
+      lastManualX = clientX;
+      lastManualTime = performance.now() / 1000;
+      physicsContainer.style.cursor = 'grabbing';
+      simStatus.textContent = "手動拉動中";
+      simStatus.className = "text-[10px] px-2 py-0.5 rounded bg-amber-900/80 text-amber-300 border border-amber-700 animate-pulse";
+    };
+
+    const handleManualMove = (clientX) => {
       if (!isManualPulling || currentMode !== 'manual') return;
       let now = performance.now() / 1000;
       let dtManual = now - lastManualTime;
       if (dtManual < 0.015) return;
 
-      let dxPx = e.clientX - lastManualX;
+      let dxPx = clientX - lastManualX;
       if (dxPx > 0) {
         let dxCm = dxPx * 0.12;
         posX += dxCm;
         velV = dxCm / dtManual;
         simTime += dtManual;
 
-        if (simTime >= nextDotIndex * dotPeriod) {
+        while (simTime >= nextDotIndex * dotPeriod) {
           recordDot(nextDotIndex, simTime, posX, dxCm, velV, 0);
           nextDotIndex++;
         }
 
         updateHUD(); drawPhysicsScene(); drawTapeScene();
       }
-      lastManualX = e.clientX; lastManualTime = now;
-    });
-    window.addEventListener('mouseup', () => { isManualPulling = false; });
+      lastManualX = clientX; lastManualTime = now;
+    };
+
+    const handleManualEnd = () => {
+      if (!isManualPulling) return;
+      isManualPulling = false;
+      if (currentMode === 'manual') {
+        physicsContainer.style.cursor = 'grab';
+        simStatus.textContent = "已停止";
+        simStatus.className = "text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700";
+      }
+    };
+
+    physicsContainer.addEventListener('mousedown', (e) => handleManualStart(e.clientX));
+    window.addEventListener('mousemove', (e) => handleManualMove(e.clientX));
+    window.addEventListener('mouseup', handleManualEnd);
+
+    // 平板觸控手勢綁定
+    physicsContainer.addEventListener('touchstart', (e) => {
+      if (e.touches.length > 0) handleManualStart(e.touches[0].clientX);
+    }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      if (isManualPulling && e.touches.length > 0) handleManualMove(e.touches[0].clientX);
+    }, { passive: true });
+    window.addEventListener('touchend', handleManualEnd);
 
     function initCharts() {
       const opts = {
